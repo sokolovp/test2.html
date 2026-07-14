@@ -397,25 +397,28 @@ function buildTable(schedules, isWelcome) {
   return html;
 }
 
-// === AUTO-LOAD FROM SHAREPOINT LIST ITEM ID ===
-// Opens like: https://sokolovp.github.io/test2.html/poster_app.html?itemId=7
-// Reads SharePoint list PosterRequests and uses JsonText to generate the poster.
-window.addEventListener("DOMContentLoaded", async function () {
-  function showStatus(message, isError) {
-    let box = document.getElementById("autoloadStatus");
+// === AUTO-LOAD FROM URL HASH / QUERY DATA ===
+// Works on GitHub Pages. No SharePoint fetch, no CORS.
+// Expected URL examples:
+//   poster_app.html#data=<encoded JSON>
+//   poster_app.html?data=<encoded JSON>
+window.addEventListener("DOMContentLoaded", function () {
+  function showLoadError(message, error) {
+    console.error(message, error || "");
 
+    let box = document.getElementById("autoloadStatus");
     if (!box) {
       box = document.createElement("div");
       box.id = "autoloadStatus";
-      box.style.padding = "10px 14px";
-      box.style.margin = "60px auto 10px";
-      box.style.maxWidth = "600px";
+      box.style.padding = "10px";
+      box.style.margin = "20px auto";
+      box.style.maxWidth = "700px";
+      box.style.background = "#f8d7da";
+      box.style.border = "1px solid #f5c2c7";
       box.style.borderRadius = "6px";
+      box.style.color = "#842029";
       box.style.fontSize = "13px";
       box.style.fontFamily = "Arial, sans-serif";
-      box.style.background = isError ? "#f8d7da" : "#fff3cd";
-      box.style.border = isError ? "1px solid #f5c2c7" : "1px solid #ffecb5";
-      box.style.color = isError ? "#842029" : "#664d03";
 
       const inputPanel = document.getElementById("inputPanel");
       if (inputPanel && inputPanel.parentNode) {
@@ -425,74 +428,52 @@ window.addEventListener("DOMContentLoaded", async function () {
       }
     }
 
-    box.style.background = isError ? "#f8d7da" : "#fff3cd";
-    box.style.border = isError ? "1px solid #f5c2c7" : "1px solid #ffecb5";
-    box.style.color = isError ? "#842029" : "#664d03";
     box.textContent = message;
   }
 
-  function getQueryParam(name) {
-    try {
-      return new URLSearchParams(window.location.search).get(name);
-    } catch (e) {
-      return null;
+  function getEncodedJsonFromUrl() {
+    const hash = window.location.hash || "";
+
+    // Preferred format: #data=<encoded JSON>
+    if (hash.startsWith("#data=")) {
+      return hash.substring("#data=".length);
     }
+
+    // Alternative format: #json=<encoded JSON>
+    if (hash.startsWith("#json=")) {
+      return hash.substring("#json=".length);
+    }
+
+    // Fallback: if whole hash is encoded JSON without prefix
+    if (hash.length > 1) {
+      const rawHash = hash.substring(1);
+      if (rawHash.startsWith("%7B") || rawHash.startsWith("{")) {
+        return rawHash;
+      }
+    }
+
+    // Query fallback: ?data=<encoded JSON>
+    const params = new URLSearchParams(window.location.search || "");
+    return params.get("data") || params.get("json");
   }
 
-  const itemIdRaw = getQueryParam("itemId");
+  const encodedJson = getEncodedJsonFromUrl();
 
-  if (!itemIdRaw) {
-    // Manual mode: user can paste JSON into the textarea.
+  if (!encodedJson) {
+    // Manual mode: user can paste JSON into the form.
     return;
   }
-
-  const itemId = String(itemIdRaw).replace(/[^0-9]/g, "");
-  if (!itemId) {
-    showStatus("Invalid itemId in URL: " + itemIdRaw, true);
-    return;
-  }
-
-  showStatus("Loading poster data from SharePoint. itemId=" + itemId, false);
 
   try {
-    const url =
-      "https://tuigroup.sharepoint.com/sites/CustomerEngagement-Engineers/_api/web/lists/getbytitle('PosterRequests')/items(" +
-      itemId +
-      ")?$select=Id,JsonText,Status,ExpiresAt";
+    const jsonText = decodeURIComponent(encodedJson);
 
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Accept": "application/json;odata=nometadata"
-      }
-    });
+    // Validate JSON before generating poster.
+    JSON.parse(jsonText);
 
-    if (!response.ok) {
-      throw new Error("SharePoint read failed. HTTP " + response.status);
-    }
-
-    const item = await response.json();
-
-    if (!item || !item.JsonText) {
-      throw new Error("JsonText is empty or not found for itemId " + itemId);
-    }
-
-    if (item.Status && item.Status !== "Active") {
-      throw new Error("Poster request is not Active. Current status: " + item.Status);
-    }
-
-    if (item.ExpiresAt && new Date(item.ExpiresAt) < new Date()) {
-      throw new Error("Poster request expired.");
-    }
-
-    document.getElementById("jsonInput").value = item.JsonText;
-    showStatus("Poster data loaded. Generating poster...", false);
+    document.getElementById("jsonInput").value = jsonText;
     generatePoster();
-
   } catch (e) {
-    console.error("Could not load poster data from SharePoint:", e);
-    showStatus("Could not load poster data from SharePoint: " + e.message, true);
+    showLoadError("Could not load poster data from URL. JSON is missing or invalid.", e);
   }
 });
 </script>
