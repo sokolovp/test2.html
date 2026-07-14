@@ -397,126 +397,66 @@ function buildTable(schedules, isWelcome) {
   return html;
 }
 
-// === AUTO-LOAD FROM SHAREPOINT LIST ITEM ID - DEBUG VERSION ===
+// === AUTO-LOAD FROM SHAREPOINT LIST ITEM ID ===
+// Opens like: https://sokolovp.github.io/test2.html/poster_app.html?itemId=7
+// Reads SharePoint list PosterRequests and uses JsonText to generate the poster.
 window.addEventListener("DOMContentLoaded", async function () {
-  const SITE_URL = "https://tuigroup.sharepoint.com/sites/CustomerEngagement-Engineers";
-  const LIST_NAME = "PosterRequests";
-
-  function ensureStatusBox() {
+  function showStatus(message, isError) {
     let box = document.getElementById("autoloadStatus");
+
     if (!box) {
       box = document.createElement("div");
       box.id = "autoloadStatus";
-      box.style.cssText =
-        "margin:10px 0 14px;padding:10px;border-radius:6px;font-family:Consolas,monospace;font-size:12px;line-height:1.35;background:#EEF7FF;border:1px solid #70CBF4;color:#1B115C;white-space:pre-wrap;";
-      const panel = document.getElementById("inputPanel");
-      const textarea = document.getElementById("jsonInput");
-      if (panel && textarea) {
-        panel.insertBefore(box, textarea.parentElement ? textarea.parentElement : textarea);
+      box.style.padding = "10px 14px";
+      box.style.margin = "60px auto 10px";
+      box.style.maxWidth = "600px";
+      box.style.borderRadius = "6px";
+      box.style.fontSize = "13px";
+      box.style.fontFamily = "Arial, sans-serif";
+      box.style.background = isError ? "#f8d7da" : "#fff3cd";
+      box.style.border = isError ? "1px solid #f5c2c7" : "1px solid #ffecb5";
+      box.style.color = isError ? "#842029" : "#664d03";
+
+      const inputPanel = document.getElementById("inputPanel");
+      if (inputPanel && inputPanel.parentNode) {
+        inputPanel.parentNode.insertBefore(box, inputPanel);
       } else {
-        document.body.insertBefore(box, document.body.firstChild);
+        document.body.appendChild(box);
       }
     }
-    return box;
-  }
 
-  function setStatus(message, isError) {
-    const box = ensureStatusBox();
-    box.style.background = isError ? "#FFF0F0" : "#EEF7FF";
-    box.style.borderColor = isError ? "#D40E14" : "#70CBF4";
-    box.style.color = isError ? "#D40E14" : "#1B115C";
+    box.style.background = isError ? "#f8d7da" : "#fff3cd";
+    box.style.border = isError ? "1px solid #f5c2c7" : "1px solid #ffecb5";
+    box.style.color = isError ? "#842029" : "#664d03";
     box.textContent = message;
   }
 
-  function safePush(arr, label, fn) {
+  function getQueryParam(name) {
     try {
-      const value = fn();
-      if (value) arr.push(label + ": " + value);
+      return new URLSearchParams(window.location.search).get(name);
     } catch (e) {
-      arr.push(label + ": [blocked: " + e.message + "]");
+      return null;
     }
   }
 
-  function collectUrlTexts() {
-    const values = [];
+  const itemIdRaw = getQueryParam("itemId");
 
-    safePush(values, "window.location.href", () => window.location.href);
-    safePush(values, "window.location.search", () => window.location.search);
-    safePush(values, "window.location.hash", () => window.location.hash);
-    safePush(values, "document.referrer", () => document.referrer);
-
-    safePush(values, "window.parent.location.href", () => window.parent.location.href);
-    safePush(values, "window.parent.location.search", () => window.parent.location.search);
-    safePush(values, "window.top.location.href", () => window.top.location.href);
-    safePush(values, "window.top.location.search", () => window.top.location.search);
-
-    const expanded = [];
-    for (const v of values) {
-      expanded.push(v);
-      try { expanded.push(decodeURIComponent(v)); } catch (e) {}
-      try { expanded.push(decodeURIComponent(decodeURIComponent(v))); } catch (e) {}
-    }
-
-    return expanded.filter(Boolean);
-  }
-
-  function extractItemIdFromText(raw) {
-    if (!raw) return null;
-
-    // Direct regex catches: ?itemId=3, &itemId=3, encoded and decoded text
-    const match = String(raw).match(/[?&#&]itemId=([0-9]+)/i);
-    if (match && match[1]) return match[1];
-
-    // Try URL parsing
-    try {
-      const query = raw.includes("?") ? raw.substring(raw.indexOf("?")) : raw;
-      const params = new URLSearchParams(query);
-      const direct = params.get("itemId");
-      if (direct) return direct;
-
-      // SharePoint viewer has an "id" parameter with encoded file path.
-      // If the encoded file path ever contains poster_app.html?itemId=3, this catches it.
-      const fileId = params.get("id");
-      if (fileId) {
-        const decoded = decodeURIComponent(fileId);
-        const inner = extractItemIdFromText(decoded);
-        if (inner) return inner;
-      }
-    } catch (e) {}
-
-    return null;
-  }
-
-  function findItemId() {
-    const texts = collectUrlTexts();
-    for (const text of texts) {
-      const id = extractItemIdFromText(text);
-      if (id) {
-        return String(id).replace(/[^0-9]/g, "");
-      }
-    }
-    return "";
-  }
-
-  const itemId = findItemId();
-
-  if (!itemId) {
-    setStatus(
-      "AUTOLOAD v2: no itemId found.\n" +
-      "Manual mode is active, so the JSON box stays empty.\n\n" +
-      "The generated link must contain something like: itemId=3\n" +
-      "Current URL seen by HTML:\n" + window.location.href,
-      true
-    );
+  if (!itemIdRaw) {
+    // Manual mode: user can paste JSON into the textarea.
     return;
   }
 
-  setStatus("AUTOLOAD v2: found itemId=" + itemId + ". Loading JSON from SharePoint list...");
+  const itemId = String(itemIdRaw).replace(/[^0-9]/g, "");
+  if (!itemId) {
+    showStatus("Invalid itemId in URL: " + itemIdRaw, true);
+    return;
+  }
+
+  showStatus("Loading poster data from SharePoint. itemId=" + itemId, false);
 
   try {
     const url =
-      SITE_URL +
-      "/_api/web/lists/getbytitle('" + LIST_NAME + "')/items(" +
+      "https://tuigroup.sharepoint.com/sites/CustomerEngagement-Engineers/_api/web/lists/getbytitle('PosterRequests')/items(" +
       itemId +
       ")?$select=Id,JsonText,Status,ExpiresAt";
 
@@ -529,37 +469,32 @@ window.addEventListener("DOMContentLoaded", async function () {
     });
 
     if (!response.ok) {
-      throw new Error("HTTP " + response.status + " while reading " + url);
+      throw new Error("SharePoint read failed. HTTP " + response.status);
     }
 
     const item = await response.json();
 
     if (!item || !item.JsonText) {
-      throw new Error("JsonText is empty for itemId=" + itemId);
+      throw new Error("JsonText is empty or not found for itemId " + itemId);
     }
 
     if (item.Status && item.Status !== "Active") {
-      throw new Error("Status is not Active. Current status: " + item.Status);
+      throw new Error("Poster request is not Active. Current status: " + item.Status);
     }
 
     if (item.ExpiresAt && new Date(item.ExpiresAt) < new Date()) {
-      throw new Error("Request expired: " + item.ExpiresAt);
+      throw new Error("Poster request expired.");
     }
 
     document.getElementById("jsonInput").value = item.JsonText;
-    setStatus("AUTOLOAD v2: JSON loaded from PosterRequests ID=" + itemId + ". Generating poster...");
+    showStatus("Poster data loaded. Generating poster...", false);
     generatePoster();
 
   } catch (e) {
-    console.error("AUTOLOAD v2 failed:", e);
-    setStatus(
-      "AUTOLOAD v2 failed:\n" + e.message + "\n\n" +
-      "Open browser console for details.",
-      true
-    );
+    console.error("Could not load poster data from SharePoint:", e);
+    showStatus("Could not load poster data from SharePoint: " + e.message, true);
   }
 });
-
 </script>
 
 </body>
